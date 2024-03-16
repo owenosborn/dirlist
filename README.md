@@ -1,2 +1,5 @@
-# dirlist
-Pd object to maintain a list of directories in a directory
+
+### wavelist ###
+
+Pd object to maintain a list of wav files in a directory 
+
