@@ -8,37 +8,26 @@
 
 static t_class *dirlist_class;
 
-// a list of filenames
+// a list of dirnames
 typedef struct {
     size_t count;
-    char **filenames;
-    int next_numbered_name;  // the highest numbered file (e.g. 124.wav) +1, used to name next file
-} Filenames;
+    char **dirnames;
+    int next_numbered_name;  // the highest numbered dir (e.g. 124) +1, used to name next dir
+} dirnames;
 
 typedef struct _dirlist {
     t_object  x_obj;
     t_outlet *outlet;
-    Filenames filenames;
+    dirnames dirnames;
 } t_dirlist;
 
 // helpers //
 
-// add a filename to the list
-static void append(Filenames *p, const char *path) {
-    p->filenames = realloc(p->filenames, sizeof(char*) * (p->count + 1));
-    p->filenames[p->count] = strdup(path);
+// add a dirname to the list
+static void append(dirnames *p, const char *path) {
+    p->dirnames = realloc(p->dirnames, sizeof(char*) * (p->count + 1));
+    p->dirnames[p->count] = strdup(path);
     p->count++;
-}
-
-// check if file is .wav or .WAV
-static int ends_with_wav(const char *str) {
-    if(str == NULL) return 0;
-
-    size_t len = strlen(str);
-    if(len < 4) return 0;
-
-    const char *extension = str + len - 4;
-    return strcmp(extension, ".wav") == 0 || strcmp(extension, ".WAV") == 0;
 }
 
 // for sorting 
@@ -47,71 +36,65 @@ static int compare(const void *a, const void *b) {
     return strcmp(*(const char **)a, *(const char **)b);
 }
 
-// clear the filename list
-static void clear_filenames(t_dirlist *x) {
-    for (size_t i = 0; i < x->filenames.count; i++) {
-        free(x->filenames.filenames[i]);
+// clear the dirname list
+static void clear_dirnames(t_dirlist *x) {
+    for (size_t i = 0; i < x->dirnames.count; i++) {
+        free(x->dirnames.dirnames[i]);
     }
-    free(x->filenames.filenames);
-    x->filenames.count = 0;
-    x->filenames.filenames = NULL;
-    x->filenames.next_numbered_name = 0;
+    free(x->dirnames.dirnames);
+    x->dirnames.count = 0;
+    x->dirnames.dirnames = NULL;
+    x->dirnames.next_numbered_name = 0;
 }
 
-// add all wav files at directory path to the list
-static int scan_for_wavs(t_dirlist *x, const char *path) {
+// add all dirs at directory path to the list
+static int scan_for_dirs(t_dirlist *x, const char *path) {
     DIR *d;
     struct dirent *dir;
     struct stat path_stat;
     char fullpath[1024];
 
-    clear_filenames(x);
+    clear_dirnames(x);
 
     d = opendir(path);
 
     if(d) {
         // loop over directory
-        while ((dir = readdir(d)) != NULL && x->filenames.count < 10000) {
+        while ((dir = readdir(d)) != NULL && x->dirnames.count < 10000) {
             
             // ignore anything starting with '.'
             if (dir->d_name[0] == '.') continue;
             
-            // check that it is a file 
+            // check that it is a directory 
             snprintf(fullpath, sizeof(fullpath), "%s/%s", path, dir->d_name);
             stat(fullpath, &path_stat);
-            if(!S_ISREG(path_stat.st_mode)) continue;
+            if(!S_ISDIR(path_stat.st_mode)) continue;
             
-            // check that it ends in '.wav' or '.WAV'
-            if(!ends_with_wav(dir->d_name)) continue;
-
             // good to go
-            append(&(x->filenames), dir->d_name);
+            append(&(x->dirnames), dir->d_name);
 
-            // if the filename is a number, we want to know the biggest one
-            char name_no_ext[strlen(dir->d_name) - 4 + 1];  // +1 for the null-terminator
-            memcpy(name_no_ext, dir->d_name, strlen(dir->d_name) - 4);
-            name_no_ext[strlen(dir->d_name) - 4] = '\0';
+            // if the dirname is a number, we want to know the biggest one
             char *end;
-            long num = strtol(name_no_ext, &end, 10);
+            long num = strtol(dir->d_name, &end, 10);
             // if it is a number and bigger than the current max
-            if (end != name_no_ext && *end == '\0' && num <= 9999 && num >= 0) {
-                if (num > x->filenames.next_numbered_name) {
-                    x->filenames.next_numbered_name = num;
+            if (end != dir->d_name && *end == '\0' && num <= 9999 && num >= 0) {
+                if (num > x->dirnames.next_numbered_name) {
+                    x->dirnames.next_numbered_name = num;
                 }
             }
         }
         closedir(d);
     }
 
-    qsort(x->filenames.filenames, x->filenames.count, sizeof(char *), compare);
-    x->filenames.next_numbered_name += 1;
+    qsort(x->dirnames.dirnames, x->dirnames.count, sizeof(char *), compare);
+    x->dirnames.next_numbered_name += 1;
 
     /*
-    for (size_t i = 0; i < x->filenames.count; i++) {
-        post("%s", x->filenames.filenames[i]);
+    for (size_t i = 0; i < x->dirnames.count; i++) {
+        post("%s", x->dirnames.dirnames[i]);
     }
-    post("max: %d", x->filenames.next_numbered_name);
-    post("number files: %d", x->filenames.count);
+    post("max: %d", x->dirnames.next_numbered_name);
+    post("number files: %d", x->dirnames.count);
     */
 
     return 0;
@@ -119,16 +102,16 @@ static int scan_for_wavs(t_dirlist *x, const char *path) {
 
 // pd class //
 
-// make list of wav files in the specified folder
+// make list of dirs in the specified dir
 static void dirlist_scan(t_dirlist *x, t_symbol *s) {
     t_atom atom[1];
 
-    scan_for_wavs(x, s->s_name);
+    scan_for_dirs(x, s->s_name);
 
-    SETFLOAT(atom, x->filenames.count);
-    outlet_anything(x->outlet, gensym("total_files"), 1, atom);
+    SETFLOAT(atom, x->dirnames.count);
+    outlet_anything(x->outlet, gensym("total_dirs"), 1, atom);
     
-    SETFLOAT(atom, x->filenames.next_numbered_name);
+    SETFLOAT(atom, x->dirnames.next_numbered_name);
     outlet_anything(x->outlet, gensym("next_name"), 1, atom);
 }
 
@@ -136,29 +119,29 @@ static void dirlist_scan(t_dirlist *x, t_symbol *s) {
 static void dirlist_float(t_dirlist *x, t_floatarg f) {
     t_atom atom[1];
    
-    if (x->filenames.count <= 0) {post("no files");return;}
+    if (x->dirnames.count <= 0) {post("no dirs");return;}
     unsigned int i = (int)f;
     if (i < 0) i = 0;
-    if (i >= x->filenames.count) i = x->filenames.count - 1;
+    if (i >= x->dirnames.count) i = x->dirnames.count - 1;
 
-    t_symbol* mySymbol = gensym(x->filenames.filenames[i]);
+    t_symbol* mySymbol = gensym(x->dirnames.dirnames[i]);
     
     SETSYMBOL(atom, mySymbol);
-    outlet_anything(x->outlet, gensym("filename"), 1, atom);
+    outlet_anything(x->outlet, gensym("dirname"), 1, atom);
 }
 
 // add file to the index
 static void dirlist_add(t_dirlist *x, t_symbol *s) {
-    append(&(x->filenames), s->s_name);
+    append(&(x->dirnames), s->s_name);
 
-    x->filenames.next_numbered_name += 1;
+    x->dirnames.next_numbered_name += 1;
  
     t_atom atom[1];
 
-    SETFLOAT(atom, x->filenames.count);
-    outlet_anything(x->outlet, gensym("total_files"), 1, atom);
+    SETFLOAT(atom, x->dirnames.count);
+    outlet_anything(x->outlet, gensym("total_dirs"), 1, atom);
     
-    SETFLOAT(atom, x->filenames.next_numbered_name);
+    SETFLOAT(atom, x->dirnames.next_numbered_name);
     outlet_anything(x->outlet, gensym("next_name"), 1, atom);
 }
 
@@ -174,9 +157,9 @@ static void *dirlist_new(){
     t_dirlist *x = (t_dirlist *)pd_new(dirlist_class);
     x->outlet = outlet_new(&x->x_obj, &s_list);
 
-    x->filenames.count = 0;
-    x->filenames.filenames = NULL;
-    x->filenames.next_numbered_name = 0;
+    x->dirnames.count = 0;
+    x->dirnames.dirnames = NULL;
+    x->dirnames.next_numbered_name = 0;
 
     return (void *)x;
 }
@@ -184,10 +167,10 @@ static void *dirlist_new(){
 static void dirlist_free(t_dirlist *x) {
     //post("freeing...");
  
-    for (size_t i = 0; i < x->filenames.count; i++) {
-        free(x->filenames.filenames[i]);
+    for (size_t i = 0; i < x->dirnames.count; i++) {
+        free(x->dirnames.dirnames[i]);
     }
-    free(x->filenames.filenames);
+    free(x->dirnames.dirnames);
 
     outlet_free(x->outlet);
 }
