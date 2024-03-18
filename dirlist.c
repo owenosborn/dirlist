@@ -18,6 +18,7 @@ typedef struct {
 typedef struct _dirlist {
     t_object  x_obj;
     t_outlet *outlet;
+    char path[256];
     dirnames dirnames;
 } t_dirlist;
 
@@ -48,15 +49,15 @@ static void clear_dirnames(t_dirlist *x) {
 }
 
 // add all dirs at directory path to the list
-static int scan_for_dirs(t_dirlist *x, const char *path) {
+static int scan_for_dirs(t_dirlist *x) {
     DIR *d;
     struct dirent *dir;
     struct stat path_stat;
     char fullpath[1024];
 
     clear_dirnames(x);
-
-    d = opendir(path);
+    
+    d = opendir(x->path);
 
     if(d) {
         // loop over directory
@@ -66,7 +67,7 @@ static int scan_for_dirs(t_dirlist *x, const char *path) {
             if (dir->d_name[0] == '.') continue;
             
             // check that it is a directory 
-            snprintf(fullpath, sizeof(fullpath), "%s/%s", path, dir->d_name);
+            snprintf(fullpath, sizeof(fullpath), "%s/%s", x->path, dir->d_name);
             stat(fullpath, &path_stat);
             if(!S_ISDIR(path_stat.st_mode)) continue;
             
@@ -106,7 +107,11 @@ static int scan_for_dirs(t_dirlist *x, const char *path) {
 static void dirlist_scan(t_dirlist *x, t_symbol *s) {
     t_atom atom[1];
 
-    scan_for_dirs(x, s->s_name);
+    strncpy(x->path, s->s_name, sizeof(x->path));
+    x->path[sizeof(x->path) - 1] = '\0';
+    
+
+    scan_for_dirs(x);
 
     SETFLOAT(atom, x->dirnames.count);
     outlet_anything(x->outlet, gensym("total_dirs"), 1, atom);
@@ -130,13 +135,29 @@ static void dirlist_float(t_dirlist *x, t_floatarg f) {
     outlet_anything(x->outlet, gensym("dirname"), 1, atom);
 }
 
-// add file to the index
+// add dir to the index
 static void dirlist_add(t_dirlist *x, t_symbol *s) {
+
     append(&(x->dirnames), s->s_name);
 
     x->dirnames.next_numbered_name += 1;
- 
+
     t_atom atom[1];
+
+    SETFLOAT(atom, x->dirnames.count);
+    outlet_anything(x->outlet, gensym("total_dirs"), 1, atom);
+    
+    SETFLOAT(atom, x->dirnames.next_numbered_name);
+    outlet_anything(x->outlet, gensym("next_name"), 1, atom);
+}
+
+// delete dir 
+static void dirlist_delete(t_dirlist *x, t_floatarg f) {
+
+    post("deleting %d", (int)f);
+    t_atom atom[1];
+
+    scan_for_dirs(x);
 
     SETFLOAT(atom, x->dirnames.count);
     outlet_anything(x->outlet, gensym("total_dirs"), 1, atom);
@@ -180,6 +201,7 @@ void dirlist_setup(void) {
     class_addmethod(dirlist_class, (t_method)dirlist_scan, gensym("scan"), A_SYMBOL, 0);
     class_addmethod(dirlist_class, (t_method)dirlist_float, gensym("float"), A_FLOAT, 0);
     class_addmethod(dirlist_class, (t_method)dirlist_add, gensym("add"), A_SYMBOL, 0);
+    class_addmethod(dirlist_class, (t_method)dirlist_delete, gensym("delete"), A_FLOAT, 0);
     //class_addmethod(dirlist_class, (t_method)dirlist_next, gensym("next"), 0);
     //class_addmethod(dirlist_class, (t_method)dirlist_previous, gensym("previous"), 0);
     //class_addmethod(dirlist_class, (t_method)dirlist_clear, gensym("clear"), 0);
